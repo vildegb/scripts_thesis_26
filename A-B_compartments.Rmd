@@ -1,0 +1,69 @@
+---
+title: "A/B_compartments"
+author: "Vilde Gustafsson Bagstevold"
+date: "2025-11-20"
+output: html_document
+---
+
+# Packages
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+
+library(tidyverse)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(GenomicRanges)
+
+# color palette
+
+```
+
+```{r}
+### import Ensemble genes and repeats
+mapping <- read_tsv("Ssal_v3.1_chromosomes.tsv") 
+gene <- read_tsv("https://salmobase.org/datafiles/TSV/genes/AtlanticSalmon/Ssal_v3.1/Ensembl_genes.tsv")
+repeats <- read_tsv("https://salmobase.org/datafiles/datasets/Salmon_repeats/Ssal_v3.1_repeats_5.2.bed", col_names = F)
+names(repeats) <- c("chromosome", "start", "end", "annotation")
+
+### loading table with all genes,ssal included
+data <- read.delim("all_eve_genes-kopi.txt", header = TRUE)
+```
+
+# Loading HiC files
+
+```{r}
+
+### loading HiC files, gill and liver CHOOSING THE RIGHT E123
+hicG <- read.delim("HiC_G.250000_compartments.cis.vecs.tsv", header = TRUE, sep = "\t")
+hicL <- read.delim("HiC_L.250000_compartments.cis.vecs.tsv", header = TRUE, sep = "\t")
+
+
+#selected_columns <- c("chrom", "start", "end", "weight", "E1")
+#filtered_data <- data[, selected_columns]
+
+
+# Add the 'Compartment' column based on the condition and add switch status
+compartments <- inner_join(
+  hicG, hicL, by = c("chrom", "start", "end")
+) %>%
+  dplyr::rename(
+    weight.G = weight.x,
+    weight.L = weight.y,
+    E1_gill  = E1.x,
+    E1_liver = E1.y,
+    E2_gill  = E2.x,
+    E2_liver = E2.y,
+    E3_gill  = E3.x,
+    E3_liver = E3.y
+  )
+```
+
+```{r}
+
+```
+
+```{r}
+#command + option + i
+```
