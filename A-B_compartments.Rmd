@@ -20,7 +20,7 @@ library(GenomicRanges)
 
 ```
 
-```{r}
+```{r, include=FALSE}
 ### import Ensemble genes and repeats
 mapping <- read_tsv("Ssal_v3.1_chromosomes.tsv") 
 gene <- read_tsv("https://salmobase.org/datafiles/TSV/genes/AtlanticSalmon/Ssal_v3.1/Ensembl_genes.tsv")
@@ -44,7 +44,6 @@ hicL <- read.delim("HiC_L.250000_compartments.cis.vecs.tsv", header = TRUE, sep 
 #filtered_data <- data[, selected_columns]
 
 
-# Add the 'Compartment' column based on the condition and add switch status
 compartments <- inner_join(
   hicG, hicL, by = c("chrom", "start", "end")
 ) %>%
@@ -57,6 +56,20 @@ compartments <- inner_join(
     E2_liver = E2.y,
     E3_gill  = E3.x,
     E3_liver = E3.y
+  )
+
+# Add the 'Compartment' column based on the condition, and add switch status
+#### FIGURE OUT EIGENVECTOR
+compartments <- compartments %>%
+  mutate(
+    comp_gill  = ifelse(E1_gill  > 0, "A", "B"),
+    comp_liver = ifelse(E1_liver > 0, "A", "B"),
+    switch_status = case_when(
+      comp_gill == "A" & comp_liver == "A" ~ "A→A (stable)",
+      comp_gill == "B" & comp_liver == "B" ~ "B→B (stable)",
+      comp_gill == "A" & comp_liver == "B" ~ "A→B (switch)",
+      comp_gill == "B" & comp_liver == "A" ~ "B→A (switch)"
+    )
   )
 ```
 

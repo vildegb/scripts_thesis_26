@@ -357,7 +357,21 @@ display: none;
 </div>
 
 
-<pre class="r"><code>compartments &lt;- inner_join(
+<div id="packages" class="section level1">
+<h1>Packages</h1>
+</div>
+<div id="loading-hic-files" class="section level1">
+<h1>Loading HiC files</h1>
+<pre class="r"><code>### loading HiC files, gill and liver CHOOSING THE RIGHT E123
+hicG &lt;- read.delim(&quot;HiC_G.250000_compartments.cis.vecs.tsv&quot;, header = TRUE, sep = &quot;\t&quot;)
+hicL &lt;- read.delim(&quot;HiC_L.250000_compartments.cis.vecs.tsv&quot;, header = TRUE, sep = &quot;\t&quot;)
+
+
+#selected_columns &lt;- c(&quot;chrom&quot;, &quot;start&quot;, &quot;end&quot;, &quot;weight&quot;, &quot;E1&quot;)
+#filtered_data &lt;- data[, selected_columns]
+
+
+compartments &lt;- inner_join(
   hicG, hicL, by = c(&quot;chrom&quot;, &quot;start&quot;, &quot;end&quot;)
 ) %&gt;%
   dplyr::rename(
@@ -369,7 +383,23 @@ display: none;
     E2_liver = E2.y,
     E3_gill  = E3.x,
     E3_liver = E3.y
+  )
+
+# Add the &#39;Compartment&#39; column based on the condition, and add switch status
+#### FIGURE OUT EIGENVECTOR
+compartments &lt;- compartments %&gt;%
+  mutate(
+    comp_gill  = ifelse(E1_gill  &gt; 0, &quot;A&quot;, &quot;B&quot;),
+    comp_liver = ifelse(E1_liver &gt; 0, &quot;A&quot;, &quot;B&quot;),
+    switch_status = case_when(
+      comp_gill == &quot;A&quot; &amp; comp_liver == &quot;A&quot; ~ &quot;A→A (stable)&quot;,
+      comp_gill == &quot;B&quot; &amp; comp_liver == &quot;B&quot; ~ &quot;B→B (stable)&quot;,
+      comp_gill == &quot;A&quot; &amp; comp_liver == &quot;B&quot; ~ &quot;A→B (switch)&quot;,
+      comp_gill == &quot;B&quot; &amp; comp_liver == &quot;A&quot; ~ &quot;B→A (switch)&quot;
+    )
   )</code></pre>
+<pre class="r"><code>#command + option + i</code></pre>
+</div>
 
 
 
