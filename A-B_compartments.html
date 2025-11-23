@@ -398,7 +398,50 @@ compartments &lt;- compartments %&gt;%
       comp_gill == &quot;B&quot; &amp; comp_liver == &quot;A&quot; ~ &quot;B→A (switch)&quot;
     )
   )</code></pre>
-<pre class="r"><code>#command + option + i</code></pre>
+</div>
+<div id="making-a-table-with-compartments-and-gene-annotations" class="section level1">
+<h1>Making a table with compartments and gene annotations</h1>
+<pre class="r"><code>### load all input files +++
+
+
+### prepare mapping table, keeping only chromosome rows
+mapping_chr &lt;- mapping %&gt;%
+  filter(is_chromosome == TRUE) %&gt;%
+  mutate(chrom = paste0(&quot;chr&quot;, name)) %&gt;%
+  select(seqname, chrom)
+
+### merge gene with mapping to get chromosome names
+
+gene &lt;- gene %&gt;%
+  left_join(mapping_chr, by = &quot;seqname&quot;) %&gt;%
+  select(chrom, start, end, gene_id)
+
+### merge data with gene position
+data_mapped &lt;- data %&gt;%
+  left_join(gene, by = c(&quot;Ssal&quot; = &quot;gene_id&quot;)) %&gt;%
+  filter(!is.na(chrom))  # remove genes on contigs
+
+
+### merge with compartments based on overlap
+
+merged &lt;- data_mapped %&gt;%
+  rowwise() %&gt;%
+  mutate(
+    match_idx = which(compartments$chrom == chrom &amp;
+                        compartments$start &lt;= start &amp;
+                        compartments$end &gt;= end)[1],
+    E1_gill = ifelse(!is.na(match_idx), compartments$E1_gill[match_idx], NA),
+    E2_gill = ifelse(!is.na(match_idx), compartments$E2_gill[match_idx], NA),
+    E3_gill = ifelse(!is.na(match_idx), compartments$E3_gill[match_idx], NA),
+    E1_liver = ifelse(!is.na(match_idx), compartments$E1_liver[match_idx], NA),
+    E2_liver = ifelse(!is.na(match_idx), compartments$E2_liver[match_idx], NA),
+    E3_liver = ifelse(!is.na(match_idx), compartments$E3_liver[match_idx], NA)
+  ) %&gt;%
+  ungroup() %&gt;%
+  select(-match_idx)
+
+### save the combined file
+write_tsv(merged, &quot;combined.tsv&quot;)</code></pre>
 </div>
 
 

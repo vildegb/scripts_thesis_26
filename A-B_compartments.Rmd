@@ -73,10 +73,52 @@ compartments <- compartments %>%
   )
 ```
 
+# Making a table with compartments and gene annotations
+ 
 ```{r}
+### load all input files +++
 
+
+### prepare mapping table, keeping only chromosome rows
+mapping_chr <- mapping %>%
+  filter(is_chromosome == TRUE) %>%
+  mutate(chrom = paste0("chr", name)) %>%
+  select(seqname, chrom)
+
+### merge gene with mapping to get chromosome names
+
+gene <- gene %>%
+  left_join(mapping_chr, by = "seqname") %>%
+  select(chrom, start, end, gene_id)
+
+### merge data with gene position
+data_mapped <- data %>%
+  left_join(gene, by = c("Ssal" = "gene_id")) %>%
+  filter(!is.na(chrom))  # remove genes on contigs
+
+
+### merge with compartments based on overlap
+
+merged <- data_mapped %>%
+  rowwise() %>%
+  mutate(
+    match_idx = which(compartments$chrom == chrom &
+                        compartments$start <= start &
+                        compartments$end >= end)[1],
+    E1_gill = ifelse(!is.na(match_idx), compartments$E1_gill[match_idx], NA),
+    E2_gill = ifelse(!is.na(match_idx), compartments$E2_gill[match_idx], NA),
+    E3_gill = ifelse(!is.na(match_idx), compartments$E3_gill[match_idx], NA),
+    E1_liver = ifelse(!is.na(match_idx), compartments$E1_liver[match_idx], NA),
+    E2_liver = ifelse(!is.na(match_idx), compartments$E2_liver[match_idx], NA),
+    E3_liver = ifelse(!is.na(match_idx), compartments$E3_liver[match_idx], NA)
+  ) %>%
+  ungroup() %>%
+  select(-match_idx)
+
+### save the combined file
+write_tsv(merged, "combined.tsv")
 ```
 
 ```{r}
-#command + option + i
+
 ```
