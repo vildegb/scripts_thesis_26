@@ -25,12 +25,21 @@
 *.txt
 *.tsv
 *.gff3
+*gff3 2
+*gff3 3
 *.gz
 ThreeDsalmon.Rproj
+*RData
+Plots/
+README.html
+README.md
+all_eve_genes_liver.RDS
+.DS_Store
 
 # Ignore specific folders
 threeDssal/
 ThreeDsalmon/
+Tentative proj/
 
 # Ignore specific R scripts
 A:B-strict30.R
