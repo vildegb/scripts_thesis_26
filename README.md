@@ -1,2 +1,2 @@
 # scripts_thesis_26
-Scripts for my master thesis - ThreeD
+Here are all scripts made in R, used for conducting my analysis for my master thesis - ThreeD
