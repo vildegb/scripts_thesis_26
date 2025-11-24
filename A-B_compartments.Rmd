@@ -58,6 +58,31 @@ compartments <- inner_join(
     E3_liver = E3.y
   )
 
+```
+
+# Perform correlation test between GC-content and eigenvectors
+
+```{r}
+# Load GC content file
+gc <- read.table("genome_gc.txt", header = TRUE)
+
+# Merge by common columns 
+gc_compartments <- merge(gc, compartments, by = c("chrom", "start"))
+
+# Select relevant columns
+df <- gc_compartments[, c("GC", "E1_liver", "E2_liver", "E3_liver", "E1_gill", "E2_gill", "E3_gill")]
+
+# Spearman correlation matrix
+cor_matrix_s <- cor(df, method = "spearman", use = "complete.obs")
+print(cor_matrix_s)
+
+# Pearson correlation matrix
+cor_matrix_p <- cor(df, method = "pearson", use = "complete.obs")
+print(cor_matrix_p)
+```
+
+```{r}
+
 # Add the 'Compartment' column based on the condition, and add switch status
 #### FIGURE OUT EIGENVECTOR
 compartments <- compartments %>%

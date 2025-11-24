@@ -383,9 +383,58 @@ compartments &lt;- inner_join(
     E2_liver = E2.y,
     E3_gill  = E3.x,
     E3_liver = E3.y
-  )
+  )</code></pre>
+</div>
+<div id="perform-correlation-test-between-gc-content-and-eigenvectors" class="section level1">
+<h1>Perform correlation test between GC-content and eigenvectors</h1>
+<pre class="r"><code># Load GC content file
+gc &lt;- read.table(&quot;genome_gc.txt&quot;, header = TRUE)
 
-# Add the &#39;Compartment&#39; column based on the condition, and add switch status
+# Merge by common columns 
+gc_compartments &lt;- merge(gc, compartments, by = c(&quot;chrom&quot;, &quot;start&quot;))
+
+# Select relevant columns
+df &lt;- gc_compartments[, c(&quot;GC&quot;, &quot;E1_liver&quot;, &quot;E2_liver&quot;, &quot;E3_liver&quot;, &quot;E1_gill&quot;, &quot;E2_gill&quot;, &quot;E3_gill&quot;)]
+
+# Spearman correlation matrix
+cor_matrix_s &lt;- cor(df, method = &quot;spearman&quot;, use = &quot;complete.obs&quot;)
+print(cor_matrix_s)</code></pre>
+<pre><code>##                    GC     E1_liver     E2_liver     E3_liver      E1_gill
+## GC        1.000000000  0.009077582 -0.091021344 -0.034462917  0.029538127
+## E1_liver  0.009077582  1.000000000  0.015646348 -0.008277282  0.232296458
+## E2_liver -0.091021344  0.015646348  1.000000000  0.003125686 -0.015952812
+## E3_liver -0.034462917 -0.008277282  0.003125686  1.000000000 -0.038751735
+## E1_gill   0.029538127  0.232296458 -0.015952812 -0.038751735  1.000000000
+## E2_gill  -0.035590274  0.004951052 -0.044488103  0.016494837 -0.004502944
+## E3_gill   0.014698922 -0.013253336 -0.037789725  0.223399987 -0.017066226
+##               E2_gill     E3_gill
+## GC       -0.035590274  0.01469892
+## E1_liver  0.004951052 -0.01325334
+## E2_liver -0.044488103 -0.03778973
+## E3_liver  0.016494837  0.22339999
+## E1_gill  -0.004502944 -0.01706623
+## E2_gill   1.000000000  0.03487133
+## E3_gill   0.034871333  1.00000000</code></pre>
+<pre class="r"><code># Pearson correlation matrix
+cor_matrix_p &lt;- cor(df, method = &quot;pearson&quot;, use = &quot;complete.obs&quot;)
+print(cor_matrix_p)</code></pre>
+<pre><code>##                    GC     E1_liver      E2_liver     E3_liver       E1_gill
+## GC        1.000000000 0.0222102408 -0.0734575235 -0.038886631  3.769711e-02
+## E1_liver  0.022210241 1.0000000000  0.0008586649  0.002277219  2.474102e-01
+## E2_liver -0.073457523 0.0008586649  1.0000000000 -0.004823278 -2.939260e-02
+## E3_liver -0.038886631 0.0022772195 -0.0048232775  1.000000000 -2.025778e-02
+## E1_gill   0.037697111 0.2474101982 -0.0293926025 -0.020257782  1.000000e+00
+## E2_gill  -0.026088815 0.0107228272 -0.0349155043 -0.016658957 -4.962413e-04
+## E3_gill   0.004855545 0.0087266892 -0.0631319538  0.247942369 -2.387639e-05
+##                E2_gill       E3_gill
+## GC       -0.0260888152  4.855545e-03
+## E1_liver  0.0107228272  8.726689e-03
+## E2_liver -0.0349155043 -6.313195e-02
+## E3_liver -0.0166589569  2.479424e-01
+## E1_gill  -0.0004962413 -2.387639e-05
+## E2_gill   1.0000000000  1.613196e-03
+## E3_gill   0.0016131955  1.000000e+00</code></pre>
+<pre class="r"><code># Add the &#39;Compartment&#39; column based on the condition, and add switch status
 #### FIGURE OUT EIGENVECTOR
 compartments &lt;- compartments %&gt;%
   mutate(
