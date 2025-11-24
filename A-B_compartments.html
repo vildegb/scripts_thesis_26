@@ -393,47 +393,75 @@ gc &lt;- read.table(&quot;genome_gc.txt&quot;, header = TRUE)
 # Merge by common columns 
 gc_compartments &lt;- merge(gc, compartments, by = c(&quot;chrom&quot;, &quot;start&quot;))
 
-# Select relevant columns
-df &lt;- gc_compartments[, c(&quot;GC&quot;, &quot;E1_liver&quot;, &quot;E2_liver&quot;, &quot;E3_liver&quot;, &quot;E1_gill&quot;, &quot;E2_gill&quot;, &quot;E3_gill&quot;)]
+library(rtracklayer)
+library(GenomicRanges)
 
-# Spearman correlation matrix
-cor_matrix_s &lt;- cor(df, method = &quot;spearman&quot;, use = &quot;complete.obs&quot;)
-print(cor_matrix_s)</code></pre>
-<pre><code>##                    GC     E1_liver     E2_liver     E3_liver      E1_gill
-## GC        1.000000000  0.009077582 -0.091021344 -0.034462917  0.029538127
-## E1_liver  0.009077582  1.000000000  0.015646348 -0.008277282  0.232296458
-## E2_liver -0.091021344  0.015646348  1.000000000  0.003125686 -0.015952812
-## E3_liver -0.034462917 -0.008277282  0.003125686  1.000000000 -0.038751735
-## E1_gill   0.029538127  0.232296458 -0.015952812 -0.038751735  1.000000000
-## E2_gill  -0.035590274  0.004951052 -0.044488103  0.016494837 -0.004502944
-## E3_gill   0.014698922 -0.013253336 -0.037789725  0.223399987 -0.017066226
-##               E2_gill     E3_gill
-## GC       -0.035590274  0.01469892
-## E1_liver  0.004951052 -0.01325334
-## E2_liver -0.044488103 -0.03778973
-## E3_liver  0.016494837  0.22339999
-## E1_gill  -0.004502944 -0.01706623
-## E2_gill   1.000000000  0.03487133
-## E3_gill   0.034871333  1.00000000</code></pre>
-<pre class="r"><code># Pearson correlation matrix
-cor_matrix_p &lt;- cor(df, method = &quot;pearson&quot;, use = &quot;complete.obs&quot;)
-print(cor_matrix_p)</code></pre>
-<pre><code>##                    GC     E1_liver      E2_liver     E3_liver       E1_gill
-## GC        1.000000000 0.0222102408 -0.0734575235 -0.038886631  3.769711e-02
-## E1_liver  0.022210241 1.0000000000  0.0008586649  0.002277219  2.474102e-01
-## E2_liver -0.073457523 0.0008586649  1.0000000000 -0.004823278 -2.939260e-02
-## E3_liver -0.038886631 0.0022772195 -0.0048232775  1.000000000 -2.025778e-02
-## E1_gill   0.037697111 0.2474101982 -0.0293926025 -0.020257782  1.000000e+00
-## E2_gill  -0.026088815 0.0107228272 -0.0349155043 -0.016658957 -4.962413e-04
-## E3_gill   0.004855545 0.0087266892 -0.0631319538  0.247942369 -2.387639e-05
-##                E2_gill       E3_gill
-## GC       -0.0260888152  4.855545e-03
-## E1_liver  0.0107228272  8.726689e-03
-## E2_liver -0.0349155043 -6.313195e-02
-## E3_liver -0.0166589569  2.479424e-01
-## E1_gill  -0.0004962413 -2.387639e-05
-## E2_gill   1.0000000000  1.613196e-03
-## E3_gill   0.0016131955  1.000000e+00</code></pre>
+# Import GFF3
+gff &lt;- import(&quot;Salmo_salar.Ssal_v3.1.106.gff3&quot;)
+
+# Filter for genes
+onlygenes &lt;- gff[gff$type == &quot;gene&quot;]
+
+# Define bins based on gc_compartments
+bins &lt;- GRanges(
+  seqnames = gc_compartments$chrom,
+  ranges = IRanges(start = gc_compartments$start, end = gc_compartments$end)
+)
+
+library(GenomeInfoDb)
+seqlevelsStyle(onlygenes) &lt;- seqlevelsStyle(bins)
+
+
+# Count genes overlapping each bin
+gene_counts &lt;- countOverlaps(bins, onlygenes)
+
+# Add raw gene counts to gc_compartments
+gc_compartments$gene_density &lt;- gene_counts
+
+# Calculate normalized gene density by bin size
+bin_size &lt;- gc_compartments$end.x - gc_compartments$start
+gc_compartments$gene_density_norm &lt;- gene_counts / bin_size
+
+gene_counts &lt;- countOverlaps(bins, onlygenes)
+gc_compartments$gene_density &lt;- gene_counts
+gc_compartments$gene_density_norm &lt;- gene_counts / (gc_compartments$end.x - gc_compartments$start)
+
+var(gc_compartments$gene_density_norm)</code></pre>
+<pre><code>## [1] 5.436168e-12</code></pre>
+<pre class="r"><code># Correlation of GC vs eigenvectors
+gc_cor_p &lt;- cor(gc_compartments[, c(&quot;GC&quot;, &quot;E1_liver&quot;, &quot;E2_liver&quot;, &quot;E3_liver&quot;, &quot;E1_gill&quot;, &quot;E2_gill&quot;, &quot;E3_gill&quot;)],
+              method = &quot;pearson&quot;, use = &quot;complete.obs&quot;)
+gc_cor_s &lt;- cor(gc_compartments[, c(&quot;GC&quot;, &quot;E1_liver&quot;, &quot;E2_liver&quot;, &quot;E3_liver&quot;, &quot;E1_gill&quot;, &quot;E2_gill&quot;, &quot;E3_gill&quot;)],
+              method = &quot;spearman&quot;, use = &quot;complete.obs&quot;)
+
+# Correlation of gene density vs eigenvectors
+gene_cor_p &lt;- cor(gc_compartments[, c(&quot;gene_density_norm&quot;, &quot;E1_liver&quot;, &quot;E2_liver&quot;, &quot;E3_liver&quot;, &quot;E1_gill&quot;, &quot;E2_gill&quot;, &quot;E3_gill&quot;)],
+                method = &quot;pearson&quot;, use = &quot;complete.obs&quot;)
+
+gene_cor_s &lt;- cor(gc_compartments[, c(&quot;gene_density_norm&quot;, &quot;E1_liver&quot;, &quot;E2_liver&quot;, &quot;E3_liver&quot;, &quot;E1_gill&quot;, &quot;E2_gill&quot;, &quot;E3_gill&quot;)],
+                method = &quot;spearman&quot;, use = &quot;complete.obs&quot;)
+
+
+print(gc_cor_s[&quot;GC&quot;, ])</code></pre>
+<pre><code>##           GC     E1_liver     E2_liver     E3_liver      E1_gill      E2_gill 
+##  1.000000000  0.009077582 -0.091021344 -0.034462917  0.029538127 -0.035590274 
+##      E3_gill 
+##  0.014698922</code></pre>
+<pre class="r"><code>print(gc_cor_p[&quot;GC&quot;, ])</code></pre>
+<pre><code>##           GC     E1_liver     E2_liver     E3_liver      E1_gill      E2_gill 
+##  1.000000000  0.022210241 -0.073457523 -0.038886631  0.037697111 -0.026088815 
+##      E3_gill 
+##  0.004855545</code></pre>
+<pre class="r"><code>print(gene_cor_p[&quot;gene_density_norm&quot;, ])</code></pre>
+<pre><code>## gene_density_norm          E1_liver          E2_liver          E3_liver 
+##       1.000000000       0.019567008      -0.016449065       0.022319117 
+##           E1_gill           E2_gill           E3_gill 
+##       0.003715821       0.028916638       0.041540081</code></pre>
+<pre class="r"><code>print(gene_cor_s[&quot;gene_density_norm&quot;, ])</code></pre>
+<pre><code>## gene_density_norm          E1_liver          E2_liver          E3_liver 
+##       1.000000000       0.024790250      -0.001112068       0.011063275 
+##           E1_gill           E2_gill           E3_gill 
+##       0.005920227       0.017604844       0.031715901</code></pre>
 <pre class="r"><code># Add the &#39;Compartment&#39; column based on the condition, and add switch status
 #### FIGURE OUT EIGENVECTOR
 compartments &lt;- compartments %&gt;%

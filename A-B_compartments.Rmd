@@ -15,6 +15,7 @@ library(readr)
 library(dplyr)
 library(tidyr)
 library(GenomicRanges)
+library(GenomeInfoDb)
 
 # color palette
 
@@ -69,16 +70,61 @@ gc <- read.table("genome_gc.txt", header = TRUE)
 # Merge by common columns 
 gc_compartments <- merge(gc, compartments, by = c("chrom", "start"))
 
-# Select relevant columns
-df <- gc_compartments[, c("GC", "E1_liver", "E2_liver", "E3_liver", "E1_gill", "E2_gill", "E3_gill")]
+library(rtracklayer)
+library(GenomicRanges)
 
-# Spearman correlation matrix
-cor_matrix_s <- cor(df, method = "spearman", use = "complete.obs")
-print(cor_matrix_s)
+# Import GFF3
+gff <- import("Salmo_salar.Ssal_v3.1.106.gff3")
 
-# Pearson correlation matrix
-cor_matrix_p <- cor(df, method = "pearson", use = "complete.obs")
-print(cor_matrix_p)
+# Filter for genes
+onlygenes <- gff[gff$type == "gene"]
+
+# Define bins based on gc_compartments
+bins <- GRanges(
+  seqnames = gc_compartments$chrom,
+  ranges = IRanges(start = gc_compartments$start, end = gc_compartments$end)
+)
+
+library(GenomeInfoDb)
+seqlevelsStyle(onlygenes) <- seqlevelsStyle(bins)
+
+
+# Count genes overlapping each bin
+gene_counts <- countOverlaps(bins, onlygenes)
+
+# Add raw gene counts to gc_compartments
+gc_compartments$gene_density <- gene_counts
+
+# Calculate normalized gene density by bin size
+bin_size <- gc_compartments$end.x - gc_compartments$start
+gc_compartments$gene_density_norm <- gene_counts / bin_size
+
+gene_counts <- countOverlaps(bins, onlygenes)
+gc_compartments$gene_density <- gene_counts
+gc_compartments$gene_density_norm <- gene_counts / (gc_compartments$end.x - gc_compartments$start)
+
+var(gc_compartments$gene_density_norm)
+
+
+# Correlation of GC vs eigenvectors
+gc_cor_p <- cor(gc_compartments[, c("GC", "E1_liver", "E2_liver", "E3_liver", "E1_gill", "E2_gill", "E3_gill")],
+              method = "pearson", use = "complete.obs")
+gc_cor_s <- cor(gc_compartments[, c("GC", "E1_liver", "E2_liver", "E3_liver", "E1_gill", "E2_gill", "E3_gill")],
+              method = "spearman", use = "complete.obs")
+
+# Correlation of gene density vs eigenvectors
+gene_cor_p <- cor(gc_compartments[, c("gene_density_norm", "E1_liver", "E2_liver", "E3_liver", "E1_gill", "E2_gill", "E3_gill")],
+                method = "pearson", use = "complete.obs")
+
+gene_cor_s <- cor(gc_compartments[, c("gene_density_norm", "E1_liver", "E2_liver", "E3_liver", "E1_gill", "E2_gill", "E3_gill")],
+                method = "spearman", use = "complete.obs")
+
+
+print(gc_cor_s["GC", ])
+print(gc_cor_p["GC", ])
+print(gene_cor_p["gene_density_norm", ])
+print(gene_cor_s["gene_density_norm", ])
+
 ```
 
 ```{r}
