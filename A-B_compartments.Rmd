@@ -39,7 +39,7 @@ data <- read.delim("all_eve_genes-kopi.txt", header = TRUE)
 hicG <- read.delim("HiC_G.250000_compartments.cis.vecs.tsv", header = TRUE, sep = "\t")
 hicL <- read.delim("HiC_L.250000_compartments.cis.vecs.tsv", header = TRUE, sep = "\t")
 
-
+#to be done when correlation test is done:
 #selected_columns <- c("chrom", "start", "end", "weight", "E1")
 #filtered_data <- data[, selected_columns]
 
@@ -122,3 +122,4 @@ write_tsv(merged, "combined.tsv")
 ```{r}
 
 ```
+
