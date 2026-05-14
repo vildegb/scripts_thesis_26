@@ -9,9 +9,7 @@ suppressPackageStartupMessages({
   library(patchwork)
 })
 
-# -----------------------------
 # Load data
-# -----------------------------
 
 final_table <- read_csv("data/derived/final_table.csv")
 
@@ -19,9 +17,7 @@ final_table <- read_csv("data/derived/final_table.csv")
 final_genes <- final_table %>%
   distinct(Ssal, .keep_all = TRUE)
 
-# -----------------------------
 # Panel A: Global A/B distribution
-# -----------------------------
 
 pn <- ggplot(
   final_genes %>%
@@ -48,9 +44,7 @@ pn <- ggplot(
   ) +
   theme_bw()
 
-# -----------------------------
 # Panel B: Chromosome-level A/B
-# -----------------------------
 
 chrom_long <- final_genes %>%
   pivot_longer(
@@ -105,9 +99,7 @@ p_liver_genes <- chrom_counts %>%
   filter(tissue == "Liver") %>%
   plot_comp("Chromosome level A/B Distribution — Liver")
 
-# -----------------------------
 # Combine panels
-# -----------------------------
 
 comp_dist <- (pn | (p_gill_genes / p_liver_genes)) +
   plot_annotation(tag_levels = "A") &
@@ -116,9 +108,7 @@ comp_dist <- (pn | (p_gill_genes / p_liver_genes)) +
     plot.tag.position = c(0, 1)
   )
 
-# -----------------------------
 # Save figure
-# -----------------------------
 
 ggsave(
   filename = "figures/Figure_AB_compartments.tiff",
