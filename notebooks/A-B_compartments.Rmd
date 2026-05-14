@@ -1,0 +1,1010 @@
+---
+title: "A/B_compartments"
+author: "Vilde Gustafsson Bagstevold"
+date: "2025-11-20"
+output: html_document
+---
+
+# Packages
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+
+library(tidyverse)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(GenomicRanges)
+library(GenomeInfoDb)
+library(ggplot2)
+# color palette
+
+```
+
+```{r, include=FALSE}
+### import Ensemble genes and repeats
+mapping <- read_tsv("Ssal_v3.1_chromosomes.tsv") 
+gene <- read_tsv("https://salmobase.org/datafiles/TSV/genes/AtlanticSalmon/Ssal_v3.1/Ensembl_genes.tsv")
+repeats <- read_tsv("https://salmobase.org/datafiles/datasets/Salmon_repeats/Ssal_v3.1_repeats_5.2.bed", col_names = F)
+names(repeats) <- c("chromosome", "start", "end", "annotation")
+
+### loading table with all genes,ssal included
+data <- read.delim("all_eve_genes.txt", header = TRUE)
+```
+
+# Loading HiC files
+
+```{r}
+
+### loading HiC files
+HiCG <- read.delim("HiC_G.250000_compartments.cis.vecs.tsv", header = TRUE, sep = "\t")
+HiCL <- read.delim("HiC_L.250000_compartments.cis.vecs.tsv", header = TRUE, sep = "\t")
+
+### renaming columns before merging
+{
+  HiCG <- HiCG %>%
+    dplyr::rename(
+      weight_gill = weight,
+      E1_gill = E1,
+      E2_gill = E2,
+      E3_gill = E3
+    )
+
+  HiCL <- HiCL %>%
+    dplyr::rename(
+      weight_liver = weight,
+      E1_liver = E1,
+      E2_liver = E2,
+      E3_liver = E3
+    )
+}
+
+### merging both Hi-C tables and add the 'Compartment' column based on the condition + switch status
+hic <- HiCG %>%
+  left_join(HiCL, by = c("chrom", "start", "end")) %>%
+  mutate(
+    comp_gill  = ifelse(E1_gill  > 0, "A", "B"),
+    comp_liver = ifelse(E1_liver > 0, "A", "B"),
+    switch_status = case_when(
+      comp_gill == "A" & comp_liver == "A" ~ "A→A",
+      comp_gill == "B" & comp_liver == "B" ~ "B→B",
+      comp_gill == "A" & comp_liver == "B" ~ "A→B",
+      comp_gill == "B" & comp_liver == "A" ~ "B→A",
+      TRUE ~ NA_character_
+    )
+  )
+
+```
+
+# Making a table with compartments and gene annotations
+
+```{r}
+
+### Chromosome mapping
+
+### repare gene coordinates with chromosome info 
+
+mapping_chr <- mapping %>%
+  filter(is_chromosome) %>%
+  mutate(chrom = paste0("chr", name)) %>%
+  select(seqname, chrom)
+
+gene_chr <- gene %>%
+  left_join(mapping_chr, by = "seqname") %>%
+  filter(!is.na(chrom)) %>%
+  select(gene_id, chrom, start, end)
+
+### Convert to GRanges
+
+genes_gr <- GRanges(
+  seqnames = gene_chr$chrom,
+  ranges   = IRanges(gene_chr$start, gene_chr$end),
+  gene_id  = gene_chr$gene_id
+  )
+
+hic_gr <- GRanges(
+  seqnames = hic$chrom,
+  ranges   = IRanges(hic$start, hic$end),
+  E1_gill = hic$E1_gill,
+  E2_gill = hic$E2_gill,
+  E3_gill = hic$E3_gill,
+  E1_liver = hic$E1_liver,
+  E2_liver = hic$E2_liver,
+  E3_liver = hic$E3_liver,
+  comp_gill = hic$comp_gill,
+  comp_liver = hic$comp_liver,
+  switch_status = hic$switch_status 
+)
+
+### Find overlaps
+hits <- findOverlaps(genes_gr, hic_gr)
+
+library(dplyr)
+
+bin_size <- 250000
+
+# Compute gene midpoint
+gene_comp <- gene_chr %>%
+  mutate(
+    gene_mid = floor((start + end) / 2),
+    bin_start = floor(gene_mid / bin_size) * bin_size,
+    bin_end   = bin_start + bin_size
+  ) %>%
+  left_join(
+    hic,
+    by = c("chrom" = "chrom", "bin_start" = "start", "bin_end" = "end")
+  ) %>%
+  mutate(
+    switch_status = case_when(
+      is.na(comp_gill) | is.na(comp_liver) ~ NA_character_,
+      comp_gill == "A" & comp_liver == "A" ~ "A→A",
+      comp_gill == "B" & comp_liver == "B" ~ "B→B",
+      comp_gill == "A" & comp_liver == "B" ~ "A→B",
+      comp_gill == "B" & comp_liver == "A" ~ "B→A"
+    )
+  )
+expr_ids <- unique(data$Ssal)
+gene_comp_expr <- gene_comp %>% filter(gene_id %in% expr_ids)
+
+### Gene × Hi-C overlap table 
+genes_hic <- tibble(
+  gene_id = mcols(genes_gr)$gene_id[queryHits(hits)],
+  
+  E1_gill = mcols(hic_gr)$E1_gill[subjectHits(hits)],
+  E2_gill = mcols(hic_gr)$E2_gill[subjectHits(hits)],
+  E3_gill = mcols(hic_gr)$E3_gill[subjectHits(hits)],
+  
+  E1_liver = mcols(hic_gr)$E1_liver[subjectHits(hits)],
+  E2_liver = mcols(hic_gr)$E2_liver[subjectHits(hits)],
+  E3_liver = mcols(hic_gr)$E3_liver[subjectHits(hits)],
+  
+  comp_gill  = mcols(hic_gr)$comp_gill[subjectHits(hits)],
+  comp_liver = mcols(hic_gr)$comp_liver[subjectHits(hits)],
+  switch_status = mcols(hic_gr)$switch_status[subjectHits(hits)]  
+)
+
+
+### Add gene coordinates to the overlap table
+genes_hic_full <- genes_hic %>%
+  left_join(gene_chr, by = "gene_id")
+
+### Merge with your main data
+final_table <- data %>%
+  left_join(genes_hic_full, by = c("Ssal" = "gene_id"))
+
+### Make chrom a factor for sorting 
+chrom_levels <- paste0("chr", 1:29)
+final_table$chrom <- factor(final_table$chrom, levels = chrom_levels, ordered = TRUE)
+
+### Sort table
+final_table <- final_table %>% arrange(chrom, start)
+
+### Remove all fish species columns except Ssal
+final_table <- final_table %>%
+  select(
+    -c(Okis:Drer) 
+  )
+
+```
+
+```{r}
+###UPSET
+
+
+```
+
+```{r}
+######## HOW MANY A/B IN EACH TISSUE
+
+pn <- ggplot(
+  final_table %>%
+    pivot_longer(
+      cols = c(comp_gill, comp_liver),
+      names_to = "tissue",
+      values_to = "compartment"
+    ),
+  aes(x = tissue, fill = compartment)
+) +
+  scale_fill_manual(values = c("A" = "#BF2C34", "B" = "#799FCB")) +
+  geom_bar(position = "dodge") +
+  scale_x_discrete(
+    labels = c(
+      comp_gill = "Gill",
+      comp_liver = "Liver"
+    )
+  ) +
+  labs(
+    title = "A/B Compartment Distribution per Tissue",
+    x = "Tissue",
+    y = "Number of Genes",
+    fill = "Compartment"
+  ) +
+  theme_bw()
+
+pn
+          
+```
+
+```{r}
+
+chrom_long <- compartments %>%
+  pivot_longer(
+    cols = c(comp_gill, comp_liver),
+    names_to = "tissue",
+    values_to = "compartment"
+  ) %>%
+  filter(!is.na(compartment)) %>%              # Remove NAs for plotting
+  mutate(
+    chrom = factor(chrom, levels = paste0("chr", 1:29)),
+    tissue = factor(tissue,
+                    levels = c("comp_gill", "comp_liver"),
+                    labels = c("Gill", "Liver"))
+  )
+
+
+chrom_counts <- chrom_long %>%
+  group_by(chrom, tissue, compartment) %>%
+  summarise(n = n(), .groups = "drop")
+
+
+cols_ab <- c("A" = "#BF2C34", "B" = "#799FCB")
+
+
+plot_comp <- function(df, title_text) {
+  ggplot(df,
+         aes(x = chrom, y = n, fill = compartment)) +
+    geom_col(position = position_dodge(width = 0.8),
+             width = 0.8,
+             color = "grey20",
+             linewidth = 0.2) +
+    scale_fill_manual(values = cols_ab) +
+    labs(
+      title = title_text,
+      x = "Chromosome",
+      y = "Number of Compartments",
+      fill = "Compartment"
+    ) +
+    theme_bw(base_size = 12) +
+    theme(
+      axis.text.x = element_text(size = 7, angle = 45, hjust = 1),
+      panel.grid.minor = element_blank()
+    )
+}
+
+p_gill_genes <- chrom_counts %>%
+  filter(tissue == "Gill") %>%
+  plot_comp("Chromosome level A/B Distribution — Gill")
+
+p_liver_genes <- chrom_counts %>%
+  filter(tissue == "Liver") %>%
+  plot_comp("Chromosome level A/B Distribution — Liver")
+
+
+p_side_genes <- p_gill_genes / p_liver_genes
+
+pn | p_side_genes
+
+res1 <- (pn | (p_gill_genes / p_liver_genes)) +
+  plot_annotation(tag_levels = "A") &
+  theme(
+    plot.tag = element_text(size = 16, face = "bold"),
+    plot.tag.position = c(0, 1)
+  )
+
+res1
+
+
+### Export plot
+ggsave(
+  filename = "Figure_AB_compartments.tiff",
+  plot = res1,
+  width = 24,      # in cm (or use 7 in if inches)
+  height = 14,
+  units = "cm",
+  dpi = 300,
+  compression = "lzw"
+)
+
+
+```
+
+```{r}
+library(dplyr)
+library(UpSetR)
+
+# STEP 1: Keep duplicated genes and one row per gene
+gene_comp <- final_table %>%
+  filter(dup_type == "duplicate") %>%
+  filter(!is.na(comp_gill), !is.na(comp_liver)) %>%
+  group_by(Ssal) %>%
+  summarise(
+    comp_gill = first(comp_gill),
+    comp_liver = first(comp_liver),
+    .groups = "drop"
+  )
+
+# STEP 2: Create TRUE/FALSE columns
+gene_comp$A_gill  <- gene_comp$comp_gill  == "A"
+gene_comp$B_gill  <- gene_comp$comp_gill  == "B"
+gene_comp$A_liver <- gene_comp$comp_liver == "A"
+gene_comp$B_liver <- gene_comp$comp_liver == "B"
+
+# STEP 3: Keep only those columns and convert to numeric
+upset_matrix <- data.frame(
+  A_gill  = as.numeric(gene_comp$A_gill),
+  B_gill  = as.numeric(gene_comp$B_gill),
+  A_liver = as.numeric(gene_comp$A_liver),
+  B_liver = as.numeric(gene_comp$B_liver)
+)
+
+# STEP 4: Plot
+upset(
+  upset_matrix,
+  sets = c("A_gill", "B_gill", "A_liver", "B_liver"),
+  order.by = "freq",
+  mainbar.y.label = "Number of duplicated genes",
+  sets.x.label = "Compartment-Tissue Combinations",
+   text.scale = c(1.2, 1.2, 1, 1, 1, 1.6)
+)
+```
+
+```{r}
+
+## A/B Compartment Dashboard 
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(patchwork)
+
+
+# Prep
+tissue_colors <- c(
+  gill = "#BF2C34",
+  liver = "#799FCB"
+)
+
+# Compute compartment size in Mb
+final_table <- final_table %>%
+  mutate(size_Mb = (end - start) / 1e6)
+
+# Reshape to long format for plotting
+long_table <- final_table %>%
+  dplyr::select(comp_gill, comp_liver, E1_gill, E1_liver) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = c(".value", "Tissue"),
+    names_pattern = "(comp|E1)_(gill|liver)"
+  ) %>%
+  filter(!is.na(comp) & !is.na(E1))  # remove NAs
+
+# Add compartment type based on E1 sign
+long_table <- long_table %>%
+  mutate(Type = ifelse(E1 > 0, "A", "B"))
+
+# Compute mean E1 per compartment for strength
+strength_table <- long_table %>%
+  group_by(Tissue, comp) %>%
+  summarise(Mean_E1 = mean(E1, na.rm = TRUE), .groups = "drop")
+
+# Eigenvector loadings: distribution of E1
+p_eigen <- ggplot(long_table, aes(x = comp, y = E1, fill = Tissue)) +
+  geom_violin(alpha = 0.7, position = position_dodge(width = 0.8)) +
+  geom_boxplot(width = 0.1, position = position_dodge(width = 0.8), outlier.shape = NA, alpha = 0.5) +
+  labs(title = "Eigenvector Loadings (E1) per Compartment", y = "E1", x = "Compartment") +
+  scale_fill_brewer(palette = "tissue_colors") +
+  theme_minimal() +
+  theme(legend.position = "top")
+
+# Compartment strength: mean E1 per compartment
+p_strength <- ggplot(strength_table, aes(x = comp, y = Mean_E1, fill = Tissue)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8)) +
+  labs(title = "Compartment Strength (Mean E1)", y = "Mean E1", x = "Compartment") +
+  scale_fill_brewer(palette = "tissue_colors") +
+  theme_minimal() +
+  theme(legend.position = "top")
+
+
+# Reshape for plotting
+size_long <- final_table %>%
+  dplyr::select(comp_gill, comp_liver, size_Mb_gill = size_Mb, size_Mb_liver = size_Mb) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = c(".value", "Tissue"),
+    names_pattern = "(comp|size_Mb)_(gill|liver)"
+  ) %>%
+  filter(!is.na(comp) & !is.na(size_Mb))  # remove NAs
+
+# Barplot of size
+p_size <- ggplot(size_long, aes(x = comp, y = size_Mb, color = Tissue)) +
+  geom_point(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.8), size = 3, alpha = 0.8) +
+  labs(title = "Compartment Sizes (Mb)", x = "Compartment", y = "Size (Mb)") +
+  theme_minimal() +
+  scale_color_brewer(palette = "tissue_color") +
+  theme(legend.position = "top")
+
+combined_plot <- p_eigen | p_strength | p_size
+combined_plot
+```
+
+
+```{r}
+#
+```
+
+```{r}
+########## PLOTS OHNO. VS. SINGLE
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(patchwork)
+
+############################################################
+# 1) TISSUE-SPECIFIC COUNTS
+############################################################
+
+df_tissue <- final_genes %>%
+  filter(ohnolog_status %in% c("ohnolog","singleton")) %>%
+  pivot_longer(c(comp_gill, comp_liver),
+               names_to = "tissue",
+               values_to = "compartment") %>%
+  mutate(
+    tissue = recode(tissue,
+                    comp_gill  = "Gill",
+                    comp_liver = "Liver")
+  ) %>%
+  filter(compartment %in% c("A","B")) %>%
+  count(tissue, ohnolog_status, compartment)
+
+p_tissue <- ggplot(df_tissue,
+                   aes(x = ohnolog_status, y = n, fill = compartment)) +
+  geom_col(position = "dodge", width = 0.7) +
+  facet_wrap(~ tissue) +
+  labs(
+    title = "Tissue-specific counts: ohnologs vs singletons in A/B",
+    x = "Gene class",
+    y = "Number of genes",
+    fill = "Compartment"
+  ) +
+  theme_minimal(base_size = 14)
+
+p_tissue 
+
+############################################################
+# 2) GLOBAL COUNTS = simply sum Gill + Liver counts
+############################################################
+
+df_global <- df_tissue %>%
+  group_by(ohnolog_status, compartment) %>%
+  summarise(n = sum(n), .groups = "drop")
+
+p_global <- ggplot(df_global,
+                   aes(x = ohnolog_status, y = n, fill = compartment)) +
+  geom_col(position = "dodge", width = 0.7) +
+  scale_fill_manual(values = c(
+    "A"       = "#BF2C34",   # red-ish
+    "B"       = "#799FCB"    # blue
+  )) +
+  labs(
+    title = "Ohnologs vs singletons in A/B (Gill + Liver)",
+    x = "Gene class",
+    y = "Number of genes",
+    fill = "Compartment"
+  ) +
+  theme_minimal(base_size = 14)
+
+p_global
+```
+
+```{r}
+
+############################################################
+# 1) CLASSIFY PAIRS: A/A, B/B, and A/B same vs differnt comp ohno
+############################################################
+
+pairs_classified <- ohnolog_pairs_ens %>%
+  # Annotate gene A
+  left_join(final_genes %>% dplyr::select(Ssal, comp_gill, comp_liver),
+            by = c("ensembl_A" = "Ssal")) %>%
+  rename(gill_A = comp_gill, liver_A = comp_liver) %>%
+  # Annotate gene B
+  left_join(final_genes %>% dplyr::select(Ssal, comp_gill, comp_liver),
+            by = c("ensembl_B" = "Ssal")) %>%
+  rename(gill_B = comp_gill, liver_B = comp_liver) %>%
+  # Only keep valid A/B calls
+  filter(gill_A %in% c("A","B"),
+         gill_B %in% c("A","B"),
+         liver_A %in% c("A","B"),
+         liver_B %in% c("A","B")) %>%
+  mutate(
+    pair_gill = case_when(
+      gill_A == "A" & gill_B == "A" ~ "A/A (same)",
+      gill_A == "B" & gill_B == "B" ~ "B/B (same)",
+      TRUE                          ~ "A/B (different)"
+    ),
+    pair_liver = case_when(
+      liver_A == "A" & liver_B == "A" ~ "A/A (same)",
+      liver_A == "B" & liver_B == "B" ~ "B/B (same)",
+      TRUE                            ~ "A/B (different)"
+    )
+  )
+
+############################################################
+# 2) COUNT PAIRS PER CATEGORY PER TISSUE
+############################################################
+
+# Gill
+count_gill <- pairs_classified %>%
+  count(tissue = "Gill", pair = pair_gill)
+
+# Liver
+count_liver <- pairs_classified %>%
+  count(tissue = "Liver", pair = pair_liver)
+
+pairs_counts <- bind_rows(count_gill, count_liver)
+
+############################################################
+# 3) PLOT (identical style to your example)
+############################################################
+
+ggplot(pairs_counts,
+       aes(x = tissue, y = n, fill = pair)) +
+  geom_col(position = "dodge", width = 0.8) +
+  scale_fill_manual(values = c(
+    "A/A (same)"       = "#BF2C34",   # red
+    "A/B (different)"  = "#9C6680",   # purple
+    "B/B (same)"       = "#799FCB"    # blue
+  )) +
+  labs(
+    title = "Ohnolog pairs: same vs different compartment",
+    x = "Tissue",
+    y = "Number of pairs",
+    fill = "Pair type"
+  ) +
+  theme_minimal(base_size = 16)
+
+```
+
+```{r}
+ohnos_raw <- read.csv("Supplementary_Data_13.csv",
+                      sep = ";",
+                      header = TRUE,
+                      skip = 1,
+                      fill = TRUE,
+                      comment.char = "")
+
+colnames(ohnos_raw)
+
+library(dplyr)
+
+final_genes <- final_table %>%
+  distinct(Ssal, .keep_all = TRUE)
+
+table(final_genes$comp_gill, useNA = "ifany")
+table(final_genes$comp_liver, useNA = "ifany")
+
+
+library(dplyr)
+library(stringr)
+
+pairs_edges <- ohnolog_pairs_ens %>%
+  transmute(
+    gene1 = str_squish(ensembl_A),
+    gene2 = str_squish(ensembl_B)
+  ) %>%
+  filter(!is.na(gene1), !is.na(gene2), gene1 != gene2) %>%
+  mutate(gmin = pmin(gene1, gene2),
+         gmax = pmax(gene1, gene2)) %>%
+  distinct(gmin, gmax) %>%
+  rename(gene1 = gmin, gene2 = gmax)
+
+pairs_1to1 <- pairs_edges %>%
+  group_by(gene1) %>% filter(n() == 1) %>% ungroup() %>%
+  group_by(gene2) %>% filter(n() == 1) %>% ungroup()
+
+nrow(pairs_edges)   # all links
+nrow(pairs_1to1)    # strict pairs
+
+
+
+
+eve_dup <- final_table[
+  final_table$dup_type == "duplicate",
+  c("Ssal", "thetaShift", "isSig")
+]
+
+pairs_eve <- pairs_df
+
+pairs_eve <- merge(
+  pairs_eve,
+  eve_dup,
+  by.x = "gene1",
+  by.y = "Ssal",
+  all.x = TRUE
+)
+names(pairs_eve)[names(pairs_eve) == "thetaShift"] <- "theta_1"
+names(pairs_eve)[names(pairs_eve) == "isSig"] <- "sig_1"
+
+pairs_eve <- merge(
+  pairs_eve,
+  eve_dup,
+  by.x = "gene2",
+  by.y = "Ssal",
+  all.x = TRUE
+)
+names(pairs_eve)[names(pairs_eve) == "thetaShift"] <- "theta_2"
+names(pairs_eve)[names(pairs_eve) == "isSig"] <- "sig_2"
+
+pairs_eve$theta_pair <- pmax(
+  abs(pairs_eve$theta_1),
+  abs(pairs_eve$theta_2),
+  na.rm = TRUE
+)
+
+pairs_eve$sig_pair <- pairs_eve$sig_1 | pairs_eve$sig_2
+
+pairs_eve$comp_gill <- ifelse(
+  pairs_eve$comp_gill_1 == pairs_eve$comp_gill_2,
+  "Same", "Different"
+)
+
+pairs_eve$comp_liver <- ifelse(
+  pairs_eve$comp_liver_1 == pairs_eve$comp_liver_2,
+  "Same", "Different"
+)
+plot_df <- rbind(
+  data.frame(
+    tissue = "Gill",
+    comp_class = pairs_eve$comp_gill,
+    theta = pairs_eve$theta_pair,
+    sig = pairs_eve$sig_pair
+  ),
+  data.frame(
+    tissue = "Liver",
+    comp_class = pairs_eve$comp_liver,
+    theta = pairs_eve$theta_pair,
+    sig = pairs_eve$sig_pair
+  )
+)
+
+plot_df <- plot_df[!is.na(plot_df$comp_class), ]
+
+
+p_theta <- ggplot(plot_df,
+                  aes(x = comp_class, y = theta, fill = comp_class)) +
+  geom_boxplot(width = 0.6, outlier.size = 0.6) +
+  facet_wrap(~ tissue) +
+  scale_fill_manual(values = c("Same" = "grey60", "Different" = "#BF2C34")) +
+  labs(
+    x = "Compartment relationship",
+    y = expression(theta*"-shift")
+  ) +
+  theme_bw(base_size = 14) +
+  theme(legend.position = "none")
+
+prop_df <- aggregate(
+  sig ~ tissue + comp_class,
+  data = plot_df,
+  FUN = mean
+)
+
+p_prop <- ggplot(prop_df,
+                 aes(x = comp_class, y = sig, fill = comp_class)) +
+  geom_col(width = 0.6) +
+  facet_wrap(~ tissue) +
+  scale_fill_manual(values = c("Same" = "grey60", "Different" = "#BF2C34")) +
+  labs(
+    x = "Compartment relationship",
+    y = "Proportion significant θ-shift"
+  ) +
+  theme_bw(base_size = 14) +
+  theme(legend.position = "none")
+
+
+fig_main <- p_theta / p_prop +
+  plot_annotation(tag_levels = "A")
+
+fig_main
+                        
+                        
+fig_main <- p_theta / p_prop +
+  plot_annotation(
+    title = "Regulatory divergence in ohnolog pairs",
+    tag_levels = "A"
+  ) &
+  theme(plot.tag = element_text(face = "bold"))
+
+fig_main <- fig_main &
+  theme(
+    plot.title = element_text(size = 16, face = "plain", hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5)
+  )
+```
+
+```{r}
+background_genes <- unique(ann$ensembl_gene_id)
+background_genes <- intersect(background_genes, TERM2GENE$ensembl_gene_id)
+
+
+############################################################
+# 1. BUILD TERM2GENE AND TERM2NAME FROM YOUR ann
+############################################################
+
+library(clusterProfiler)
+library(dplyr)
+library(enrichplot)
+
+ann_clean <- ann %>%
+  filter(go_id != "", !is.na(go_id))
+
+TERM2GENE <- ann_clean %>%
+  dplyr::select(go_id, ensembl_gene_id) %>%
+  distinct()
+
+TERM2NAME <- ann_clean %>%
+  dplyr::select(go_id, name_1006) %>%
+  distinct() %>%
+  dplyr::rename(Term = name_1006)
+
+############################################################
+# 2. TEST SET (ohnologs)
+############################################################
+
+test_genes <- unique(ohnolog_df$gene_id)
+test_genes <- intersect(test_genes, TERM2GENE$ensembl_gene_id)
+
+############################################################
+# 3. BACKGROUND SET = ALL SALMON GENES WITH GO TERMS
+############################################################
+
+background_genes <- unique(ann_clean$ensembl_gene_id)
+background_genes <- intersect(background_genes, TERM2GENE$ensembl_gene_id)
+
+cat("Foreground:", length(test_genes), "\n")
+cat("Background:", length(background_genes), "\n")
+
+############################################################
+# 4. RUN ENRICHMENT
+############################################################
+
+ego <- enricher(
+  gene          = test_genes,
+  universe      = background_genes,
+  TERM2GENE     = TERM2GENE,
+  TERM2NAME     = TERM2NAME,
+  pAdjustMethod = "BH",
+  pvalueCutoff  = 0.05,
+  qvalueCutoff  = 0.2
+)
+
+############################################################
+# 5. INSPECT & SAVE
+############################################################
+
+res <- as.data.frame(ego)
+head(res, 20)
+
+############################################################
+# 6. PLOT
+############################################################
+
+if (!is.null(ego) && nrow(res) > 0) {
+  dotplot(ego, showCategory = 20) +
+    ggtitle("GO enrichment — ohnologs (BP)") +
+    theme_minimal(base_size = 14)
+} else {
+  message("No enriched GO terms found.")
+}
+
+############ JIPPI KAYEYYYY - TID FOR A/B
+############################################################
+# FUNCTION: GO enrichment for ohnologs in a given compartment
+############################################################
+
+run_compartment_go <- function(final_genes, 
+                               compartment_col,  # "comp_gill" or "comp_liver"
+                               compartment_value, # "A" or "B"
+                               TERM2GENE, TERM2NAME) {
+  
+  # Foreground = ohnologs specifically in A/B
+  fg <- final_genes %>%
+    filter(ohnolog_status == "ohnolog",
+           !!sym(compartment_col) == compartment_value) %>%
+    pull(Ssal) %>% unique()
+  
+  # Background = all annotated genes
+  bg <- unique(TERM2GENE$ensembl_gene_id)
+  
+  # Keep only genes that exist in GO annotation
+  fg_use <- intersect(fg, bg)
+  bg_use <- bg
+  
+  message("=== ", compartment_col, " = ", compartment_value, " ===")
+  message("Foreground (ohnologs): ", length(fg_use))
+  
+  if (length(fg_use) < 10) {
+    warning("Too few genes — enrichment skipped.")
+    return(NULL)
+  }
+  
+  enricher(
+    gene          = fg_use,
+    universe      = bg_use,
+    TERM2GENE     = TERM2GENE,
+    TERM2NAME     = TERM2NAME,
+    pAdjustMethod = "BH",
+    pvalueCutoff  = 0.05,
+    qvalueCutoff  = 0.2,
+    minGSSize     = 10
+  )
+}
+
+# Gill
+ego_gill_A  <- run_compartment_go(final_genes, "comp_gill",  "A", TERM2GENE, TERM2NAME)
+ego_gill_B  <- run_compartment_go(final_genes, "comp_gill",  "B", TERM2GENE, TERM2NAME)
+
+# Liver
+ego_liver_A <- run_compartment_go(final_genes, "comp_liver", "A", TERM2GENE, TERM2NAME)
+ego_liver_B <- run_compartment_go(final_genes, "comp_liver", "B", TERM2GENE, TERM2NAME)
+
+library(enrichplot)
+
+plot_comp <- function(ego, title) {
+  if (!is.null(ego) && nrow(as.data.frame(ego)) > 0) {
+    p <- dotplot(ego, showCategory = 15) +
+      ggtitle(title) +
+      theme_minimal(base_size = 14)
+    print(p)
+  } else {
+    message("No enriched terms for: ", title)
+  }
+}
+
+p1 <- plot_comp(ego_gill_A,  "Gill — Compartment A (ohnologs)")
+p2 <- plot_comp(ego_gill_B,  "Gill — Compartment B (ohnologs)")
+p3 <- plot_comp(ego_liver_A, "Liver — Compartment A (ohnologs)")
+p4 <- plot_comp(ego_liver_B, "Liver — Compartment B (ohnologs)")
+
+combined_AB <- (p1 | p2) / (p3 | p4)
+
+combined_AB
+
+########### SAME VS. DIFFERENT COMP IN PAIRS
+
+library(dplyr)
+library(clusterProfiler)
+library(ggplot2)
+
+############################################################
+# 1) PREPARE SAME vs DIFFERENT GENE LISTS
+############################################################
+
+# SAME = pairs that are SAME in BOTH tissues
+same_genes <- pairs_comp %>%
+  filter(gill_pair_class == "Same" & liver_pair_class == "Same") %>%
+  dplyr::select(ensembl_A, ensembl_B) %>%
+  unlist() %>%
+  unique()
+
+# DIFFERENT = pairs that are DIFFERENT in AT LEAST one tissue
+diff_genes <- pairs_comp %>%
+  filter(gill_pair_class == "Different" | liver_pair_class == "Different") %>%
+  dplyr::select(ensembl_A, ensembl_B) %>%
+  unlist() %>%
+  unique()
+
+cat("SAME genes:", length(same_genes), "\n")
+cat("DIFFERENT genes:", length(diff_genes), "\n")
+
+############################################################
+# 2) PREPARE TERM2GENE + TERM2NAME (your objects)
+############################################################
+
+ann_clean <- ann %>%
+  filter(go_id != "", !is.na(go_id))
+
+TERM2GENE <- ann_clean %>%
+  dplyr::select(go_id, ensembl_gene_id) %>%
+  distinct()
+
+TERM2NAME <- ann_clean %>%
+  dplyr::select(go_id, name_1006) %>%
+  distinct() %>%
+  rename(Term = name_1006)
+
+bg <- unique(TERM2GENE$ensembl_gene_id)
+
+############################################################
+# 3) RUN ENRICHMENT FOR SAME + DIFFERENT
+############################################################
+
+ego_same <- enricher(
+  gene = intersect(same_genes, bg),
+  universe = bg,
+  TERM2GENE = TERM2GENE,
+  TERM2NAME = TERM2NAME,
+  pAdjustMethod = "BH",
+  pvalueCutoff = 0.05,
+  qvalueCutoff = 0.20,
+  minGSSize = 10
+)
+
+ego_diff <- enricher(
+  gene = intersect(diff_genes, bg),
+  universe = bg,
+  TERM2GENE = TERM2GENE,
+  TERM2NAME = TERM2NAME,
+  pAdjustMethod = "BH",
+  pvalueCutoff = 0.05,
+  qvalueCutoff = 0.20,
+  minGSSize = 10
+)
+
+res_same <- as.data.frame(ego_same)
+res_diff <- as.data.frame(ego_diff)
+
+############################################################
+# 4) BARPLOT FUNCTION
+############################################################
+
+plot_go_bar <- function(res, title) {
+  
+  if (is.null(res) || nrow(res) == 0) {
+    return(
+      ggplot() +
+        annotate("text", x = 0.5, y = 0.5, 
+                 label = "No enriched terms",
+                 size = 6) +
+        theme_void() +
+        ggtitle(title)
+    )
+  }
+  
+  df <- res %>%
+    arrange(p.adjust) %>%
+    slice(1:12) %>%
+    mutate(Description = factor(Description, levels = rev(Description)))
+  
+  ggplot(df, aes(x = Description, y = GeneRatio, fill = p.adjust)) +
+    geom_col() +
+    coord_flip() +
+    scale_fill_gradient(low = "red", high = "blue") +
+    labs(title = title, x = "", y = "Gene Ratio", fill = "adj. p") +
+    theme_minimal(base_size = 14)
+}
+
+############################################################
+# 5) GENERATE THE TWO PLOTS
+############################################################
+
+p_same <- plot_go_bar(res_same,  "GO: SAME-compartment ohnolog pairs")
+p_diff <- plot_go_bar(res_diff,  "GO: DIFFERENT-compartment ohnolog pairs")
+
+p_same|p_diff
+
+#######
+
+library(dplyr)
+library(ggplot2)
+
+############################################################
+# 1. BUILD THE PAIR-LEVEL DATAFRAME
+############################################################
+
+hyp_df <- pairs_comp %>%
+  # add regulatory divergence for gene A (pair-level proxy)
+  left_join(
+    final_table %>% dplyr::select(Ssal, thetaShift, pval, isSig),
+    by = c("ensembl_A" = "Ssal")
+  ) %>%
+  mutate(
+    neglogP = -log10(pval),
+    
+    # tissue-specific compartment divergence
+    comp_gill  = ifelse(gill_pair_class  == "Different", "Different compartment", "Same compartment"),
+    comp_liver = ifelse(liver_pair_class == "Different", "Different compartment", "Same compartment"),
+    
+    # regulatory divergence class
+    reg_group = ifelse(isSig, "Regulatory divergent", "Regulatory conserved")
+  )
+```
