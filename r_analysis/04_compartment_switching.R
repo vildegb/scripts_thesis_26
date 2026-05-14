@@ -10,7 +10,7 @@ suppressPackageStartupMessages({
 # Load data
 final_table <- read_csv("data/derived/final_table.csv")
 
-# Keep one row per gene (IMPORTANT)
+# Keep one row per gene
 final_genes <- final_table %>%
   distinct(Ssal, .keep_all = TRUE)
 
