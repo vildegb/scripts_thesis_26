@@ -109,8 +109,8 @@ ohnolog_ids <- ohnolog_pairs_ens %>%
 write_csv(ohnolog_ids, "data/derived/ohnolog_ids.csv")
 
 singleton_ids <- ohnos_raw %>%
-  filter(!is.na(ohnos_raw[[3]]) & is.na(ohnos_raw[[8]])) %>%
-  transmute(loc_id = ohnos_raw[[3]]) %>%
+  filter(!is.na(gene) & is.na(gene.1)) %>%
+  transmute(loc_id = gene) %>%
   left_join(map_best, by = "loc_id") %>%
   transmute(ensembl_gene_id = ensembl) %>%
   distinct()
